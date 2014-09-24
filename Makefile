@@ -9,9 +9,6 @@ GLPK_DIST=http://ftp.gnu.org/gnu/glpk/${GLPK}.tar.gz
 GLPK_JAVA=libglpk-java-${GLPK_JAVA_VERSION}
 GLPK_JAVA_DIST=http://kent.dl.sourceforge.net/project/glpk-java/glpk-java/glpk-java-${GLPK_JAVA_VERSION}/${GLPK_JAVA}.tar.gz
 
-OPSYS=`uname -s | tr 'A-Z' 'a-z'`
-MACHINE=`uname -m`
-
 TARGET_DIR=${CURDIR}/tmp
 
 OBJECTS=${TARGET_DIR}/lib/libglpk.so \
@@ -36,8 +33,7 @@ ${GLPK}/.configure_done: ${GLPK}
 	(cd ${GLPK} && ./configure \
 			--prefix=${TARGET_DIR} \
 			--with-gmp=yes \
-			--with-pic=yes \
-			--enable-dl)
+			--with-pic=yes)
 	touch $@
 
 build_glpk: ${GLPK}/.build_done
