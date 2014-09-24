@@ -54,8 +54,8 @@ ${GLPK_JAVA}/.configure_done: ${GLPK_JAVA}
 				--prefix=${TARGET_DIR} \
 				--enable-shared=yes \
 				--enable-static=no \
-				CPPFLAGS="-I${TARGET_DIR}/include" \
-				LDFLAGS="-L${TARGET_DIR}/lib" \
+				CPPFLAGS="-I${TARGET_DIR}/include -I/System/Library/Frameworks/JavaVM.framework/Headers" \
+				LDFLAGS="-L${TARGET_DIR}/lib -I/System/Library/Frameworks/JavaVM.framework/Headers" \
 				SWIGFLAGS="-I${TARGET_DIR}/include" \
 				JAVA_HOME=${JAVA_HOME})
 	touch $@
