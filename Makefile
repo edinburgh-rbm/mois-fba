@@ -9,6 +9,8 @@ GLPK_DIST=http://ftp.gnu.org/gnu/glpk/${GLPK}.tar.gz
 GLPK_JAVA=libglpk-java-${GLPK_JAVA_VERSION}
 GLPK_JAVA_DIST=http://kent.dl.sourceforge.net/project/glpk-java/glpk-java/glpk-java-${GLPK_JAVA_VERSION}/${GLPK_JAVA}.tar.gz
 
+SBT=sbt -batch -no-colors
+
 TARGET_DIR=${CURDIR}/tmp
 
 OBJECTS=${TARGET_DIR}/lib/libglpk.so \
@@ -16,13 +18,13 @@ OBJECTS=${TARGET_DIR}/lib/libglpk.so \
 	${TARGET_DIR}/share/java/glpk-java.jar
 
 all: install_deps
-	sbt -batch compile
+	${SBT} compile
 
 test:
-	sbt -batch test
+	${SBT} test
 
 install: all
-	sbt publish-local
+	${SBT} publish-local
 
 install_deps: install_glpk install_glpk_java
 	mkdir -p lib
@@ -83,7 +85,7 @@ ${GLPK_JAVA}.tar.gz:
 	curl -s ${GLPK_JAVA_DIST} > $@
 
 clean:
-	sbt -batch clean
+	${SBT} clean
 	rm -rf ${GLPK} ${GLPK}.tar.gz
 	rm -rf ${GLPK_JAVA} ${GLPK_JAVA}.tar.gz
 	rm -rf tmp
