@@ -25,7 +25,7 @@ import org.gnu.glpk.GLPK
 class GlpkJniTest extends FlatSpec with Matchers {
   "glpk" should "at least link" in {
 
-    println(GLPK.glp_version());
+    GLPK.glp_version() should equal ("4.55")
 
     0 should not be 1
   }
