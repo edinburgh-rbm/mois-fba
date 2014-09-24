@@ -18,8 +18,9 @@
 package uk.ac.ed.inf.mois.test
 
 import org.scalatest.{FlatSpec, Matchers}
+import uk.ac.ed.inf.mois.fba
 
-import org.gnu.glpk.GLPK;
+import org.gnu.glpk.GLPK
 
 class GlpkJniTest extends FlatSpec with Matchers {
   "glpk" should "at least link" in {

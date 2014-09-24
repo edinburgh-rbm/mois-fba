@@ -19,22 +19,28 @@ import sbt._
 import Keys._
 
 object FbaBuild extends Build {
-  private val osdep = OS.os + "-" + OS.arch + OS.abi(OS.arch)
   lazy val root = Project(
     id="root",
     base=file("."),
     settings=
       Defaults.defaultSettings ++
         Seq(
-          name := "mois-fba-" + osdep,
+          name := "mois-fba",
           organization := "uk.ac.ed.inf",
           version := "0.1-SNAPSHOT",
           scalaVersion := "2.11.2",
-          libraryDependencies += "com.github.fommil" % "jniloader" % "1.1",
+          scalacOptions ++= Seq("-deprecation", "-unchecked", "-feature"),
           libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.0" % "test",
-          packageBin in Compile := baseDirectory.value / "lib" / ("glpk-java-" + osdep + ".jar"),
+          unmanagedJars in Compile := {
+            val jars = (baseDirectory.value / "lib") * ("glpk-java.jar")
+            jars.classpath
+          },
           exportJars := true,
-          crossPaths := true
+          crossPaths := true,
+          resourceGenerators in Compile += task[Seq[File]] {
+            val sofiles = (baseDirectory.value / "lib") ** "*.so"
+            sofiles.get
+          }
         )
   )
 }
