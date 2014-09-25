@@ -47,10 +47,25 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
   }
 
   val rxns = mutable.ArrayBuffer.empty[LinearNetwork]
+  /** specify the list of reactions in the network */
   def reactions(rss: Seq[LinearNetwork]*) =
     for (rs <- rss; r <- rs) rxns += r
   implicit def rxnToSeq(r: LinearNetwork) = Seq(r)
 
+  // the objective function (multiset...)
+  private var obj: Multiset[Species] = null
+  /** define the objective function to minimise */
+  def minimise(s: Multiset[Species]) {
+    GLPK.glp_set_obj_dir(lp, GLPKConstants.GLP_MIN)
+    obj = s
+  }
+  /** define the objective function to maximise */
+  def maximise(s: Multiset[Species]) {
+    GLPK.glp_set_obj_dir(lp, GLPKConstants.GLP_MAX)
+    obj = s
+  }
+
+  /** (sparse) matrix of coefficients from the reactions */
   lazy val coefficientMatrix = {
     // FIXME: should be possible to do this in one pass, no?
     val nz = mutable.ArrayBuffer.empty[Array[Int]]
@@ -72,10 +87,10 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     mat
   }
 
-  def coefficientCols: Array[Int] =
+  private lazy val coefficientCols: Array[Int] =
     coefficientMatrix.getColumnIndices map(_ + 1)
 
-  def coefficientRows = {
+  private lazy val coefficientRows = {
     val coli: Array[Int] = coefficientMatrix.getColumnIndices // only size used
     val rptrs = coefficientMatrix.getRowPointers
     val ind = mutable.ArrayBuffer.empty[Int]
@@ -88,25 +103,36 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     ind ++= Array.fill(coli.size - rptrs(rptrs.size-1))(i)
     ind.toArray
   }
-  def coefficientData: Array[Double] = coefficientMatrix.getData
+  private lazy val coefficientData: Array[Double] = coefficientMatrix.getData
+
 
   private val lp = GLPK.glp_create_prob
+
   override def init(t: Double) {
     super.init(t)
+
+    require (obj != null, "objective function is unspecified")
+
     GLPK.glp_set_prob_name(lp, toString)
+
+    // set up rows, one for each reaction
     GLPK.glp_add_rows(lp, rxns.size)
     for (i <- 0 until rxns.size) {
       GLPK.glp_set_row_name(lp, i+1, rxns(i).toString)
     }
+
+    // set up columns, one for each reaction
     GLPK.glp_add_cols(lp, species.size)
     for (i <- 0 until species.size) {
       GLPK.glp_set_col_name(lp, i+1, species(i).meta.identifier)
     }
 
-    loadMatrix
-  }
+    // set up objective function
+    for((s, c) <- obj) {
+      GLPK.glp_set_obj_coef(lp, species.indexOf(s)+1, c)
+    }
 
-  private def loadMatrix {
+    // helpers for loading the matrix of coefficients
     @inline def scala2swigI(a: Array[Int]): SWIGTYPE_p_int = {
       val si = GLPK.new_intArray(a.size + 1)
       for (i <- 0 until a.size) {
@@ -122,6 +148,7 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
       sd
     }
 
+    // load the coefficient matrix
     val scr = scala2swigI(coefficientRows)
     val scc = scala2swigI(coefficientCols)
     val sdd = scala2swigD(coefficientData)
@@ -129,5 +156,22 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     GLPK.delete_intArray(scr)
     GLPK.delete_intArray(scc)
     GLPK.delete_doubleArray(sdd)
+
+    // TODO: user constraints
+
+    // and that's it. we set the constraints that come as
+    // known values in the step function on the copy
+  }
+
+  override def step(t: Double, tau: Double) {
+    val clp = GLPK.glp_create_prob
+    GLPK.glp_copy_prob(clp, lp, GLPKConstants.GLP_OFF)
+    GLPK.glp_simplex(clp, null)
+    var i = 0
+    while (i < species.size) {
+      species(i) := GLPK.glp_get_col_prim(clp, i+1)
+      i += 1
+    }
+    GLPK.glp_delete_prob(clp)
   }
 }

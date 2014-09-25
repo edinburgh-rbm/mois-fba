@@ -27,6 +27,7 @@ class ExampleLinearProblem extends LinOptProcess {
   val x2 = Species("x2")
   val x3 = Species("x3")
 
+  maximise(10(x1) + 6(x2) + 4(x3))
   reactions(
     x1 --> -1(x2) + -1(x3), // XXX FIXME -1
     10(x1) --> -4(x2) + -5(x3),
@@ -45,8 +46,6 @@ class LinearTest extends FlatSpec with Matchers {
     for (r <- elp.rxns)
       println(r)
     println(elp.coefficientMatrix)
-    println(elp.coefficientCols.toList)
-    println(elp.coefficientRows.toList)
-    println(elp.coefficientData.toList)
+    elp.step(0, 1)
   }
 }
