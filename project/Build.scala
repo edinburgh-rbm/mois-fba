@@ -30,6 +30,9 @@ object FbaBuild extends Build {
           version := "0.1-SNAPSHOT",
           scalaVersion := "2.11.2",
           scalacOptions ++= Seq("-deprecation", "-unchecked", "-feature"),
+          libraryDependencies += "uk.ac.ed.inf" %% "mois" % "1.99.6-SNAPSHOT" exclude("xml-apis", "xml-apis"),
+          libraryDependencies += "com.googlecode.matrix-toolkits-java" % "mtj" % "1.0.1",
+          libraryDependencies += "com.github.fommil.netlib" % "all" % "1.1.2",
           libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.0" % "test",
           unmanagedJars in Compile := {
             val jars = (baseDirectory.value / "lib") * ("glpk-java.jar")
