@@ -45,6 +45,7 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
   type Reaction = LinearNetwork
 
   require(!linOptSingleton.used, "only one linear problem is allowed. GLPK is not thread safe")
+  linOptSingleton.used = true
 
   class LinearNetwork(val lhs: Multiset[Species], val rhs: Multiset[Species])
       extends BaseReaction with Bounds[Double] {
@@ -57,6 +58,11 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
       def lte(b: Double) = { n.upperBound = Some(new n.UpperBound(b)); n }
       def nonnegative() = gte(r.zero)
     }
+  }
+
+  private val fixed_species = mutable.ArrayBuffer.empty[Species]
+  protected implicit class SpeciesSyntax(s: Species) {
+    def fixed = { fixed_species += s; s }
   }
 
   object Reaction extends ReactionFactory {
@@ -177,13 +183,6 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     GLPK.delete_intArray(scc)
     GLPK.delete_doubleArray(sdd)
 
-    // and that's it. we set the constraints that come as
-    // known values in the step function on the copy
-  }
-
-  override def step(t: Double, tau: Double) {
-    // set bounds (which may have changed!)
-
     // row bounds
     var i = 0
     while (i < rxns.size) {
@@ -220,6 +219,19 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
       i += 1
     }
 
+    // and that's it. we set the constraints that come as
+    // known values in the step function on the copy
+  }
+
+  override def step(t: Double, tau: Double) {
+    // set bounds (which may have changed!)
+    for (s <- fixed_species) {
+      // FIXME: indexOf inefficient
+      GLPK.glp_set_col_bnds(lp, species.indexOf(s)+1, GLP_FX, s.value, s.value)
+    }
+
+    // alternative
+
     // solve the problem
     val parm = new glp_smcp()
     parm.setMsg_lev(GLP_MSG_ALL)
@@ -243,7 +255,7 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     }
 
     // copy out the results
-    i = 0
+    var i = 0
     while (i < species.size) {
       species(i) := GLPK.glp_get_col_prim(lp, i+1)
       i += 1
@@ -254,15 +266,24 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     println(s"dumping linear problem: ${GLPK.glp_get_prob_name(lp)}")
     var i = 0
     println("rows")
+    def typeStr(i: Int) = i match {
+        case GLP_FR => "FR"
+        case GLP_LO => "LO"
+        case GLP_UP => "UP"
+        case GLP_DB => "DB"
+        case GLP_FX => "FX"
+      case _ => "UNK"
+    }
+
     while (i < rxns.size) {
       println(s"\t${i+1}\t${GLPK.glp_get_row_name(lp, i+1)} = ${GLPK.glp_get_row_prim(lp, i+1)}")
-      println(s"\t\t    ${GLPK.glp_get_row_lb(lp, i+1)} < x < ${GLPK.glp_get_row_ub(lp, i+1)}")
+      println(s"\t\t    ${typeStr(GLPK.glp_get_row_type(lp, i+1))}: ${GLPK.glp_get_row_lb(lp, i+1)} < x < ${GLPK.glp_get_row_ub(lp, i+1)}")
       i += 1
     }
     println("cols")
     i = 0
     while (i < species.size) {
-      println(s"\t${i+1}\t${GLPK.glp_get_col_lb(lp, i+1)} < ${GLPK.glp_get_col_name(lp, i+1)} = ${GLPK.glp_get_col_prim(lp, i+1)} < ${GLPK.glp_get_col_ub(lp, i+1)}")
+      println(s"\t${i+1}\t${typeStr(GLPK.glp_get_col_type(lp, i+1))}: ${GLPK.glp_get_col_lb(lp, i+1)} < ${GLPK.glp_get_col_name(lp, i+1)} = ${GLPK.glp_get_col_prim(lp, i+1)} < ${GLPK.glp_get_col_ub(lp, i+1)}")
       i += 1
     }
   }

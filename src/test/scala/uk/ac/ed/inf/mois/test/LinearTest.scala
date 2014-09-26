@@ -41,13 +41,19 @@ class LinearTest extends FlatSpec with Matchers {
   implicit val doubleEquality =
     TolerantNumerics.tolerantDoubleEquality(precision)
 
+  val elp = new ExampleLinearProblem
+  elp.init(0)
+
   "reactions" should "be convertible to matrices" in {
-    val elp = new ExampleLinearProblem
-    elp.init(0)
-    for (r <- elp.rxns)
-      println(r)
+    elp.x1 := 50.0
     println(elp.coefficientMatrix)
     elp.step(0, 1)
     elp.dump
+  }
+
+  "linear programs" should "only have one of" in {
+    intercept[IllegalArgumentException] {
+      new ExampleLinearProblem
+    }
   }
 }
