@@ -26,7 +26,7 @@ import spire.algebra.{Order, Rig}
 import no.uib.cipr.matrix.sparse.CompRowMatrix
 
 import org.gnu.glpk.GLPK
-import org.gnu.glpk.GLPKConstants
+import org.gnu.glpk.GLPKConstants._
 import org.gnu.glpk.GlpkException
 import org.gnu.glpk.SWIGTYPE_p_double
 import org.gnu.glpk.SWIGTYPE_p_int
@@ -37,8 +37,14 @@ import uk.ac.ed.inf.mois.reaction.RateLawReactionNetwork
 import uk.ac.ed.inf.mois.math.Multiset
 import uk.ac.ed.inf.mois.Bounds
 
+private[fba] object linOptSingleton {
+  var used = false
+}
+
 class LinOptProcess extends RateLawReactionNetwork[Double] {
   type Reaction = LinearNetwork
+
+  require(!linOptSingleton.used, "only one linear problem is allowed. GLPK is not thread safe")
 
   class LinearNetwork(val lhs: Multiset[Species], val rhs: Multiset[Species])
       extends BaseReaction with Bounds[Double] {
@@ -67,12 +73,12 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
   private var obj: Multiset[Species] = null
   /** define the objective function to minimise */
   def minimise(s: Multiset[Species]) {
-    GLPK.glp_set_obj_dir(lp, GLPKConstants.GLP_MIN)
+    GLPK.glp_set_obj_dir(lp, GLP_MIN)
     obj = s
   }
   /** define the objective function to maximise */
   def maximise(s: Multiset[Species]) {
-    GLPK.glp_set_obj_dir(lp, GLPKConstants.GLP_MAX)
+    GLPK.glp_set_obj_dir(lp, GLP_MAX)
     obj = s
   }
 
@@ -131,22 +137,14 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     GLPK.glp_add_rows(lp, rxns.size)
     for (i <- 0 until rxns.size) {
       val r = rxns(i)
-      GLPK.glp_set_row_name(lp, i+1, r.toString)
-      if (r.lowerBound.isDefined)
-        GLPK.glp_set_row_bnds(lp, i+1, GLPKConstants.GLP_LO, r.lowerBound.get.bound, 0)
-      if (r.upperBound.isDefined)
-        GLPK.glp_set_row_bnds(lp, i+1, GLPKConstants.GLP_UP, 0, r.upperBound.get.bound)
+      GLPK.glp_set_row_name(lp, i+1, rxns(i).toString)
     }
 
     // set up columns, one for each reaction
     GLPK.glp_add_cols(lp, species.size)
     for (i <- 0 until species.size) {
       val s = species(i)
-      GLPK.glp_set_col_name(lp, i+1, s.meta.identifier)
-      if (s.lowerBound.isDefined)
-        GLPK.glp_set_col_bnds(lp, i+1, GLPKConstants.GLP_LO, s.lowerBound.get.bound, 0)
-      if (s.upperBound.isDefined)
-        GLPK.glp_set_col_bnds(lp, i+1, GLPKConstants.GLP_UP, 0, s.upperBound.get.bound)
+      GLPK.glp_set_col_name(lp, i+1, species(i).meta.identifier)
     }
 
     // set up objective function
@@ -179,21 +177,93 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     GLPK.delete_intArray(scc)
     GLPK.delete_doubleArray(sdd)
 
-    // TODO: user constraints
-
     // and that's it. we set the constraints that come as
     // known values in the step function on the copy
   }
 
   override def step(t: Double, tau: Double) {
-    val clp = GLPK.glp_create_prob
-    GLPK.glp_copy_prob(clp, lp, GLPKConstants.GLP_OFF)
-    GLPK.glp_simplex(clp, null)
+    // set bounds (which may have changed!)
+
+    // row bounds
     var i = 0
-    while (i < species.size) {
-      species(i) := GLPK.glp_get_col_prim(clp, i+1)
+    while (i < rxns.size) {
+      val r = rxns(i)
+      if (r.lowerBound.isDefined && r.upperBound.isDefined) {
+        val lower = r.lowerBound.get.bound
+        val upper = r.upperBound.get.bound
+        if (lower == upper)
+          GLPK.glp_set_row_bnds(lp, i+1, GLP_FX, lower, upper)
+        else
+          GLPK.glp_set_row_bnds(lp, i+1, GLP_DB, lower, upper)
+      } else if (r.lowerBound.isDefined)
+        GLPK.glp_set_row_bnds(lp, i+1, GLP_LO, r.lowerBound.get.bound, 0)
+      else if (r.upperBound.isDefined)
+        GLPK.glp_set_row_bnds(lp, i+1, GLP_UP, 0, r.upperBound.get.bound)
       i += 1
     }
-    GLPK.glp_delete_prob(clp)
+
+    // column bounds
+    i = 0
+    while (i < species.size) {
+      val s = species(i)
+      if (s.lowerBound.isDefined && s.upperBound.isDefined) {
+        val lower = s.lowerBound.get.bound
+        val upper = s.upperBound.get.bound
+        if (lower == upper)
+          GLPK.glp_set_col_bnds(lp, i+1, GLP_FX, lower, upper)
+        else
+          GLPK.glp_set_col_bnds(lp, i+1, GLP_DB, lower, upper)
+      } else if (s.lowerBound.isDefined)
+        GLPK.glp_set_col_bnds(lp, i+1, GLP_LO, s.lowerBound.get.bound, 0)
+      else if (s.upperBound.isDefined)
+        GLPK.glp_set_col_bnds(lp, i+1, GLP_UP, 0, s.upperBound.get.bound)
+      i += 1
+    }
+
+    // solve the problem
+    val parm = new glp_smcp()
+    parm.setMsg_lev(GLP_MSG_ALL)
+    GLPK.glp_init_smcp(parm)
+    GLPK.glp_simplex(lp, null)
+
+    val status = GLPK.glp_get_status(lp)
+    status match {
+      case GLP_OPT => println("optimal")
+      case GLP_FEAS => println("feasible")
+      case GLP_INFEAS => println("infeasible")
+      case GLP_NOFEAS => println("no feasible")
+      case GLP_UNBND => {
+        print("without bound caused by: ")
+        val v = GLPK.glp_get_unbnd_ray(lp)
+        if (v == 0) println("who knows")
+        else if (v <= rxns.size) println(rxns(v-1))
+        else println(species(v-rxns.size-1))
+      }
+      case GLP_UNDEF => println("wha?")
+    }
+
+    // copy out the results
+    i = 0
+    while (i < species.size) {
+      species(i) := GLPK.glp_get_col_prim(lp, i+1)
+      i += 1
+    }
+  }
+
+  def dump {
+    println(s"dumping linear problem: ${GLPK.glp_get_prob_name(lp)}")
+    var i = 0
+    println("rows")
+    while (i < rxns.size) {
+      println(s"\t${i+1}\t${GLPK.glp_get_row_name(lp, i+1)} = ${GLPK.glp_get_row_prim(lp, i+1)}")
+      println(s"\t\t    ${GLPK.glp_get_row_lb(lp, i+1)} < x < ${GLPK.glp_get_row_ub(lp, i+1)}")
+      i += 1
+    }
+    println("cols")
+    i = 0
+    while (i < species.size) {
+      println(s"\t${i+1}\t${GLPK.glp_get_col_lb(lp, i+1)} < ${GLPK.glp_get_col_name(lp, i+1)} = ${GLPK.glp_get_col_prim(lp, i+1)} < ${GLPK.glp_get_col_ub(lp, i+1)}")
+      i += 1
+    }
   }
 }
