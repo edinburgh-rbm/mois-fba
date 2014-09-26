@@ -21,6 +21,8 @@ import scala.collection.mutable
 import scala.language.implicitConversions
 import scala.math.pow
 
+import spire.algebra.{Order, Rig}
+
 import no.uib.cipr.matrix.sparse.CompRowMatrix
 
 import org.gnu.glpk.GLPK
@@ -33,13 +35,22 @@ import org.gnu.glpk.glp_smcp
 
 import uk.ac.ed.inf.mois.reaction.RateLawReactionNetwork
 import uk.ac.ed.inf.mois.math.Multiset
+import uk.ac.ed.inf.mois.Bounds
 
 class LinOptProcess extends RateLawReactionNetwork[Double] {
   type Reaction = LinearNetwork
 
   class LinearNetwork(val lhs: Multiset[Species], val rhs: Multiset[Species])
-      extends BaseReaction {
+      extends BaseReaction with Bounds[Double] {
     def at(k: => Double) = RateLawReaction(lhs, rhs, () => k)
+  }
+
+  object LinearNetwork {
+    implicit class BoundSyntax(n: LinearNetwork)(implicit o: Order[Double], r: Rig[Double]) {
+      def gte(b: Double) = { n.lowerBound = Some(new n.LowerBound(b)); n }
+      def lte(b: Double) = { n.upperBound = Some(new n.UpperBound(b)); n }
+      def nonnegative() = gte(r.zero)
+    }
   }
 
   object Reaction extends ReactionFactory {
@@ -71,7 +82,8 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     val nz = mutable.ArrayBuffer.empty[Array[Int]]
     for (r <- rxns) {
       val row = mutable.ArrayBuffer.empty[Int]
-      for (s <- (r.lhs + r.rhs).keys.toSeq.sortBy(_.meta)) {
+//      for (s <- (r.lhs + r.rhs).keys.toSeq.sortBy(_.meta)) {
+      for (s <- r.lhs.keys ++ r.rhs.keys) {
         row += species.indexOf(s)
       }
       nz += row.toArray
@@ -79,10 +91,10 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     val mat = new CompRowMatrix(rxns.size, species.size, nz.toArray)
     for (i <- 0 until rxns.size) {
       val r = rxns(i)
-      val specs = r.lhs + r.rhs
-      for (s <- specs.keys.toSeq.sortBy(_.meta)) {
-        mat.set(i, species.indexOf(s), specs(s))
-      }
+      for (s <- r.lhs.keys)
+        mat.set(i, species.indexOf(s), r.lhs(s))
+      for (s <- r.rhs.keys)
+        mat.set(i, species.indexOf(s), -r.rhs(s))
     }
     mat
   }
@@ -118,13 +130,23 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     // set up rows, one for each reaction
     GLPK.glp_add_rows(lp, rxns.size)
     for (i <- 0 until rxns.size) {
-      GLPK.glp_set_row_name(lp, i+1, rxns(i).toString)
+      val r = rxns(i)
+      GLPK.glp_set_row_name(lp, i+1, r.toString)
+      if (r.lowerBound.isDefined)
+        GLPK.glp_set_row_bnds(lp, i+1, GLPKConstants.GLP_LO, r.lowerBound.get.bound, 0)
+      if (r.upperBound.isDefined)
+        GLPK.glp_set_row_bnds(lp, i+1, GLPKConstants.GLP_UP, 0, r.upperBound.get.bound)
     }
 
     // set up columns, one for each reaction
     GLPK.glp_add_cols(lp, species.size)
     for (i <- 0 until species.size) {
-      GLPK.glp_set_col_name(lp, i+1, species(i).meta.identifier)
+      val s = species(i)
+      GLPK.glp_set_col_name(lp, i+1, s.meta.identifier)
+      if (s.lowerBound.isDefined)
+        GLPK.glp_set_col_bnds(lp, i+1, GLPKConstants.GLP_LO, s.lowerBound.get.bound, 0)
+      if (s.upperBound.isDefined)
+        GLPK.glp_set_col_bnds(lp, i+1, GLPKConstants.GLP_UP, 0, s.upperBound.get.bound)
     }
 
     // set up objective function

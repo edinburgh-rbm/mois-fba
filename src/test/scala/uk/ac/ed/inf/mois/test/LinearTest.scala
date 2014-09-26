@@ -21,17 +21,18 @@ import org.scalatest.{FlatSpec, Matchers}
 import org.scalactic.TolerantNumerics
 import uk.ac.ed.inf.mois.fba.LinOptProcess
 import spire.implicits._
+import uk.ac.ed.inf.mois.implicits._
 
 class ExampleLinearProblem extends LinOptProcess {
-  val x1 = Species("x1")
-  val x2 = Species("x2")
-  val x3 = Species("x3")
+  val x1 = Species("x1"); x1 nonnegative()
+  val x2 = Species("x2"); x2 nonnegative()
+  val x3 = Species("x3"); x3 nonnegative()
 
   maximise(10(x1) + 6(x2) + 4(x3))
   reactions(
-    x1 --> -1(x2) + -1(x3), // XXX FIXME -1
-    10(x1) --> -4(x2) + -5(x3),
-    2(x1) --> -2(x2) + -6(x3)
+    x1 --> -1(x2) + -1(x3) lte(100), // XXX FIXME -1
+    10(x1) --> -4(x2) + -5(x3) lte(600),
+    2(x1) --> -2(x2) + -6(x3) lte(300)
   )
 }
 
