@@ -281,14 +281,14 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
 
   override def step(t: Double, tau: Double) {
     try {
-      glpkLock.acquire()
+      glpkLock.lock()
       GLPK.glp_free_env()
       val lp = _glpk_create_prob
       _glpk_init_prob(lp)
       _glpk_step(lp, t, tau)
       _glpk_dump(lp)
     } finally {
-      glpkLock.release()
+      glpkLock.unlock()
     }
   }
 

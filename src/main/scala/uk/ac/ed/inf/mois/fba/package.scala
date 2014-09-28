@@ -1,5 +1,5 @@
 package uk.ac.ed.inf.mois
 
 package object fba {
-  val glpkLock = new scala.concurrent.Lock
+  val glpkLock = new java.util.concurrent.locks.ReentrantLock
 }
