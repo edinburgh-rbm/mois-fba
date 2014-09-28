@@ -37,15 +37,8 @@ import uk.ac.ed.inf.mois.reaction.RateLawReactionNetwork
 import uk.ac.ed.inf.mois.math.Multiset
 import uk.ac.ed.inf.mois.Bounds
 
-private[fba] object linOptSingleton {
-  var used = false
-}
-
 class LinOptProcess extends RateLawReactionNetwork[Double] {
   type Reaction = LinearNetwork
-
-  require(!linOptSingleton.used, "only one linear problem is allowed. GLPK is not thread safe")
-  linOptSingleton.used = true
 
   class LinearNetwork(val lhs: Multiset[Species], val rhs: Multiset[Species])
       extends BaseReaction with Bounds[Double] {
@@ -77,15 +70,18 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
 
   // the objective function (multiset...)
   private var obj: Multiset[Species] = null
+  private var obj_dir: Int = GLP_MAX
+
   /** define the objective function to minimise */
   def minimise(s: Multiset[Species]) {
-    GLPK.glp_set_obj_dir(lp, GLP_MIN)
     obj = s
+    obj_dir = GLP_MIN
   }
+
   /** define the objective function to maximise */
   def maximise(s: Multiset[Species]) {
-    GLPK.glp_set_obj_dir(lp, GLP_MAX)
     obj = s
+    obj_dir = GLP_MAX
   }
 
   /** (sparse) matrix of coefficients from the reactions */
@@ -129,14 +125,8 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
   }
   private lazy val coefficientData: Array[Double] = coefficientMatrix.getData
 
-
-  private val lp = GLPK.glp_create_prob
-
-  override def init(t: Double) {
-    super.init(t)
-
-    require (obj != null, "objective function is unspecified")
-
+  private def _glpk_create_prob = GLPK.glp_create_prob
+  private def _glpk_init_prob(lp: org.gnu.glpk.glp_prob) {
     GLPK.glp_set_prob_name(lp, toString)
 
     // set up rows, one for each reaction
@@ -154,6 +144,7 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     }
 
     // set up objective function
+    GLPK.glp_set_obj_dir(lp, obj_dir)
     for((s, c) <- obj) {
       GLPK.glp_set_obj_coef(lp, species.indexOf(s)+1, c)
     }
@@ -218,19 +209,14 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
         GLPK.glp_set_col_bnds(lp, i+1, GLP_UP, 0, s.upperBound.get.bound)
       i += 1
     }
-
-    // and that's it. we set the constraints that come as
-    // known values in the step function on the copy
   }
 
-  override def step(t: Double, tau: Double) {
+  private def _glpk_step(lp: org.gnu.glpk.glp_prob, t: Double, tau: Double) {
     // set bounds (which may have changed!)
     for (s <- fixed_species) {
       // FIXME: indexOf inefficient
       GLPK.glp_set_col_bnds(lp, species.indexOf(s)+1, GLP_FX, s.value, s.value)
     }
-
-    // alternative
 
     // solve the problem
     val parm = new glp_smcp()
@@ -262,7 +248,7 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     }
   }
 
-  def dump {
+  def _glpk_dump(lp: org.gnu.glpk.glp_prob) {
     println(s"dumping linear problem: ${GLPK.glp_get_prob_name(lp)}")
     var i = 0
     println("rows")
@@ -287,4 +273,23 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
       i += 1
     }
   }
+
+  override def init(t: Double) {
+    require (obj != null, "objective function is unspecified")
+    super.init(t)
+  }
+
+  override def step(t: Double, tau: Double) {
+    try {
+      glpkLock.acquire()
+      GLPK.glp_free_env()
+      val lp = _glpk_create_prob
+      _glpk_init_prob(lp)
+      _glpk_step(lp, t, tau)
+      _glpk_dump(lp)
+    } finally {
+      glpkLock.release()
+    }
+  }
+
 }

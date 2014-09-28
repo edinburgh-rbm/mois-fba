@@ -48,12 +48,5 @@ class LinearTest extends FlatSpec with Matchers {
     elp.x1 := 50.0
     println(elp.coefficientMatrix)
     elp.step(0, 1)
-    elp.dump
-  }
-
-  "linear programs" should "only have one of" in {
-    intercept[IllegalArgumentException] {
-      new ExampleLinearProblem
-    }
   }
 }
