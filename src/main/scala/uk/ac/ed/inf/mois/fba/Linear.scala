@@ -68,8 +68,9 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     for (rs <- rss; r <- rs) rxns += r
   implicit def rxnToSeq(r: LinearNetwork) = Seq(r)
 
-  // the objective function (multiset...)
+  /** the objective function (multiset...) **/
   private var obj: Multiset[Species] = null
+  /** the direction of the objective function (maximisation or minimisation) **/
   private var obj_dir: Int = GLP_MAX
 
   /** define the objective function to minimise */
@@ -125,7 +126,10 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
   }
   private lazy val coefficientData: Array[Double] = coefficientMatrix.getData
 
+  /** must be called with glpkLock held **/
   private def _glpk_create_prob = GLPK.glp_create_prob
+
+  /** must be called with glpkLock held **/
   private def _glpk_init_prob(lp: org.gnu.glpk.glp_prob) {
     GLPK.glp_set_prob_name(lp, toString)
 
@@ -211,6 +215,7 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     }
   }
 
+  /** must be called with glpkLock held **/
   private def _glpk_step(lp: org.gnu.glpk.glp_prob, t: Double, tau: Double) {
     // set bounds (which may have changed!)
     for (s <- fixed_species) {
@@ -248,6 +253,7 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     }
   }
 
+  /** must be called with glpkLock held **/
   def _glpk_dump(lp: org.gnu.glpk.glp_prob) {
     println(s"dumping linear problem: ${GLPK.glp_get_prob_name(lp)}")
     var i = 0
