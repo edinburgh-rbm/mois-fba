@@ -28,12 +28,15 @@ class ExampleLinearProblem extends LinOptProcess {
   val x2 = Species("x2"); x2 nonnegative()
   val x3 = Species("x3"); x3 nonnegative()
 
-  maximise(10(x1) + 6(x2) + 4(x3))
+  def objective = x1 * 10 + x2 * 6 + x3 * 4
+  maximise
+
   reactions(
     x1 --> 1(x2) + 1(x3) lte(100), // XXX FIXME -1
     10(x1) --> 4(x2) + 5(x3) lte(600),
     2(x1) --> 2(x2) + 6(x3) lte(300)
   )
+
 }
 
 class LinearTest extends FlatSpec with Matchers {

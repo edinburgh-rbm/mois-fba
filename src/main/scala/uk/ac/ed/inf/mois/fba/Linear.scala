@@ -20,8 +20,11 @@ package uk.ac.ed.inf.mois.fba
 import scala.collection.mutable
 import scala.language.implicitConversions
 import scala.math.pow
+import scala.reflect.ClassTag
 
-import spire.algebra.{Order, Rig}
+import spire.algebra.{Field, Order, Rig}
+import spire.math.{Jet, JetDim}
+import spire.implicits._
 
 import no.uib.cipr.matrix.sparse.CompRowMatrix
 
@@ -36,8 +39,10 @@ import org.gnu.glpk.glp_smcp
 import uk.ac.ed.inf.mois.reaction.RateLawReactionNetwork
 import uk.ac.ed.inf.mois.math.Multiset
 import uk.ac.ed.inf.mois.Bounds
+import uk.ac.ed.inf.mois.{Var, VarMeta}
+import uk.ac.ed.inf.mois.Index
 
-class LinOptProcess extends RateLawReactionNetwork[Double] {
+abstract class LinOptProcess extends RateLawReactionNetwork[Double] {
   type Reaction = LinearNetwork
 
   class LinearNetwork(val lhs: Multiset[Species], val rhs: Multiset[Species])
@@ -52,6 +57,18 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
       def nonnegative() = gte(r.zero)
     }
   }
+
+  /** dimension is needed to initialise the Jet -- see [[varJet]] for an
+    * explanation */
+  implicit lazy val dimension = JetDim(species.size)
+  private lazy val specidx = species.zipWithIndex.toMap
+  /**
+    * This implicit makes it possible to do arithmetic, and crucially
+    * automatic differentiation on a function of Vars, such as the
+    * objective function. This is how we get the coefficients to use
+    * for the (linearised) objective function passed to GLPK.
+    */
+  implicit def varJet(v: Var[Double]) = v.value + Jet.h[Double](specidx(v))
 
   private val fixed_species = mutable.ArrayBuffer.empty[Species]
   protected implicit class SpeciesSyntax(s: Species) {
@@ -68,20 +85,34 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     for (rs <- rss; r <- rs) rxns += r
   implicit def rxnToSeq(r: LinearNetwork) = Seq(r)
 
-  /** the objective function (multiset...) **/
-  private var obj: Multiset[Species] = null
   /** the direction of the objective function (maximisation or minimisation) **/
   private var obj_dir: Int = GLP_MAX
 
+  /** The objective function must be implemented by a subclass. It is
+    * defined to return a Jet rather than a straight value because that
+    * gives us the derivatives we need to do non-linear objective
+    * functions. For example, if we do
+    *
+    * {{{
+    *     def objective = 2*x + 3*y**2
+    *     x := 1
+    *     y := 2
+    *     objective -> (11.0 + [2.0, 18.0]h)
+    * }}}
+    *
+    * So in this example, 11.0 is the value of the function at that the
+    * point (1,2), and [2.0, 18.0] are the partial derivatives with
+    * respect to x and y, evaluated also at that point.
+    */
+  def objective: Jet[Double]
+
   /** define the objective function to minimise */
-  def minimise(s: Multiset[Species]) {
-    obj = s
+  def minimise {
     obj_dir = GLP_MIN
   }
 
   /** define the objective function to maximise */
-  def maximise(s: Multiset[Species]) {
-    obj = s
+  def maximise {
     obj_dir = GLP_MAX
   }
 
@@ -130,6 +161,18 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
   private def _glpk_create_prob = GLPK.glp_create_prob
 
   /** must be called with glpkLock held **/
+  private def _glpk_setup_obj(lp: org.gnu.glpk.glp_prob) {
+    // set up objective function
+    GLPK.glp_set_obj_dir(lp, obj_dir)
+    val objv = objective
+    var i = 0
+    while (i < species.size) {
+      GLPK.glp_set_obj_coef(lp, i+1, objv.infinitesimal(i))
+      i += 1
+    }
+  }
+
+  /** must be called with glpkLock held **/
   private def _glpk_init_prob(lp: org.gnu.glpk.glp_prob) {
     GLPK.glp_set_prob_name(lp, toString)
 
@@ -145,12 +188,6 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     for (i <- 0 until species.size) {
       val s = species(i)
       GLPK.glp_set_col_name(lp, i+1, species(i).meta.identifier)
-    }
-
-    // set up objective function
-    GLPK.glp_set_obj_dir(lp, obj_dir)
-    for((s, c) <- obj) {
-      GLPK.glp_set_obj_coef(lp, species.indexOf(s)+1, c)
     }
 
     // helpers for loading the matrix of coefficients
@@ -280,17 +317,13 @@ class LinOptProcess extends RateLawReactionNetwork[Double] {
     }
   }
 
-  override def init(t: Double) {
-    require (obj != null, "objective function is unspecified")
-    super.init(t)
-  }
-
   override def step(t: Double, tau: Double) {
     try {
       glpkLock.lock()
       GLPK.glp_free_env()
       val lp = _glpk_create_prob
       _glpk_init_prob(lp)
+      _glpk_setup_obj(lp)
       _glpk_step(lp, t, tau)
       _glpk_dump(lp)
     } finally {
