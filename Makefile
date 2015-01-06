@@ -79,10 +79,10 @@ ${GLPK_JAVA}: ${GLPK_JAVA}.tar.gz
 	gzip -dc ${GLPK_JAVA}.tar.gz | tar -xf -
 
 ${GLPK}.tar.gz:
-	curl -s ${GLPK_DIST} > $@
+	curl -Ls ${GLPK_DIST} > $@
 ${GLPK_JAVA}.tar.gz:
 	echo ${GLPK_JAVA_DIST}
-	curl -s ${GLPK_JAVA_DIST} > $@
+	curl -Ls ${GLPK_JAVA_DIST} > $@
 
 clean:
 	${SBT} clean
